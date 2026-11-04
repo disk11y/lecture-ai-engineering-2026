@@ -12,6 +12,7 @@ from pydantic_ai.models.test import TestModel
 from app.agent import MCP_CONFIG, build_mcp_agent
 
 GLOSSARY_TOOL = "glossary_search_glossary"  # 設定ファイルのサーバー名 "glossary" が前に付く
+QUIZ_TOOL = "glossary_make_quiz"
 
 
 def _glossary_only_config(tmp_path):
@@ -35,6 +36,7 @@ def test_glossary_server_exposes_search_tool(tmp_path):
 
     offered = {t.name for t in model.last_model_request_parameters.function_tools}
     assert GLOSSARY_TOOL in offered  # 演習でツールを足しても壊れないよう「含む」で判定
+    assert QUIZ_TOOL in offered
 
 
 def test_glossary_result_comes_back_through_mcp(tmp_path):
@@ -46,3 +48,17 @@ def test_glossary_result_comes_back_through_mcp(tmp_path):
     assert returns and returns[0].tool_name == GLOSSARY_TOOL
     assert str(returns[0].content).strip()  # 検索結果（または「見つかりませんでした」）が戻っている
     assert result.output
+
+
+def test_quiz_is_available_through_mcp(tmp_path, monkeypatch):
+    from app import tools
+
+    monkeypatch.setattr(tools.random, "choice", lambda entries: entries[0])
+    model = TestModel(call_tools=[QUIZ_TOOL])
+    result = build_mcp_agent(_glossary_only_config(tmp_path)).run_sync("確認問題を出して", model=model)
+
+    calls = _parts(result, ToolCallPart)
+    returns = _parts(result, ToolReturnPart)
+    assert [part.tool_name for part in calls] == [QUIZ_TOOL]
+    assert returns and returns[0].tool_name == QUIZ_TOOL
+    assert '"question"' in str(returns[0].content)
